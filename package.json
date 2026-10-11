@@ -1,0 +1,8 @@
+{
+  "name": "spoolpilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test", "dev": "node scripts/serve.mjs"},
+  "engines": {"node": ">=22"}
+}

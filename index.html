@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#182d29"><title>SpoolPilot · Dein Druck, im Blick</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><a class="brand" href="#">◉ SpoolPilot</a><span>DEIN DRUCK. IM BLICK.</span><button id="export" class="secondary">Daten exportieren</button></header>
+<main>
+<section class="intro"><p class="eyebrow">DEINE KLEINE DRUCKWERKSTATT</p><h1>Gute Ideen brauchen<br><em>genug Filament.</em></h1><p>Behalte deine Rollen im Blick und plane den nächsten Druck.<br>Einfach, lokal und ohne Anmeldung.</p></section>
+<div class="stats"><div><span>Filament auf Lager</span><strong id="total">0 g</strong></div><div><span>Aktive Rollen</span><strong id="count">0</strong></div><div><span>Abgeschlossene Drucke</span><strong id="jobs">0</strong></div></div>
+<p id="notice" role="status" aria-live="polite"></p>
+<div class="workspace">
+<section class="inventory"><div class="section-heading"><h2>Deine Rollen</h2><span class="tag">LAGER</span></div><div id="rolls"></div><details id="add-details" open><summary>＋ Neue Rolle hinzufügen</summary><form id="roll-form">
+<label>Bezeichnung<input name="name" placeholder="z. B. PLA · Waldgrün" required maxlength="80"></label>
+<div class="pair"><label>Material<select name="material"><option>PLA</option><option>PETG</option><option>ABS</option><option>ASA</option><option>TPU</option><option>Sonstiges</option></select></label><label>Farbe<input name="color" type="color" value="#6b9575"></label></div>
+<div class="pair"><label>Ursprüngliches Gewicht (g)<input name="initialGrams" type="number" min="1" max="100000" step="0.1" value="1000" required></label><label>Verbleibendes Filament (g)<input name="remainingGrams" type="number" min="0" max="100000" step="0.1" value="1000" required></label></div>
+<label>Preis der Rolle (€)<input name="price" type="number" min="0" max="100000" step="0.01" value="24.90" required></label><button type="submit">Rolle speichern</button></form></details></section>
+<section class="planner"><div class="section-heading"><h2>Nächsten Druck planen</h2><span class="tag">KALKULATION</span></div><form id="print-form">
+<label>Filamentrolle<select name="spoolId" id="spool-select" required></select></label>
+<label>Name des Drucks<input name="name" placeholder="z. B. Kabelhalter" maxlength="80" value="Mein nächster Druck" required></label>
+<div class="pair"><label>Verbrauch laut Slicer (g)<input name="grams" type="number" min="0.1" max="100000" step="0.1" value="85" required></label><label>Druckzeit (Stunden)<input name="hours" type="number" min="0" max="10000" step="0.1" value="4" required></label></div>
+<details><summary>Stromkosten einstellen</summary><div class="pair"><label>Mittlere Leistung (W)<input name="watts" type="number" min="0" max="100000" step="1" value="120" required></label><label>Strompreis (€/kWh)<input name="electricityRate" type="number" min="0" max="100" step="0.01" value="0.35" required></label></div></details>
+<div class="estimate"><span>Geschätzte Druckkosten</span><strong id="cost">—</strong><div class="cost-parts"><span id="material-cost">Material —</span><span id="power-cost">Strom —</span></div><p id="availability">Füge zuerst eine Filamentrolle hinzu.</p></div>
+<p class="hint">Schätzung aus Material und Strom. Wartung, Arbeitszeit und Fehldrucke sind nicht enthalten. Der Verbrauch wird erst beim Verbuchen abgezogen.</p>
+<button id="book" type="submit" disabled>Druck abschließen &amp; verbuchen</button></form></section>
+</div>
+<section class="history"><div class="section-heading"><h2>Aus deiner Werkstatt</h2><span class="tag">DRUCKHISTORIE</span></div><div id="history"></div></section>
+<footer>Deine Daten bleiben in diesem Browser. Exportiere sie regelmäßig als Sicherung.<br>SpoolPilot · Ein Open-Source-Projekt von schlagskill</footer>
+</main><script type="module" src="app.js"></script>
+</body></html>
