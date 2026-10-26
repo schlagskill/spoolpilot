@@ -7,7 +7,6 @@ import { PDFDocument, StandardFonts } from "pdf-lib"
 
 const execFileAsync = promisify(execFile)
 const REDIS_URL = process.env.REDIS_URL || "redis://red-dbfonubl550s739gmf70:6379"
-const SUMMARY_DATA_URL = process.env.SUMMARY_DATA_URL || "https://remarkable-google-tasks.netlify.app/.netlify/functions/summary-data"
 const RMAPI = process.env.RMAPI_BIN || path.join(process.cwd(), "bin", "rmapi")
 const RMAPI_AUTH = process.env.RMAPI_AUTH || "https://webapp-prod.cloud.remarkable.engineering"
 const CONFIG = "/tmp/remarkable-rmapi.yml"
@@ -45,7 +44,7 @@ function wrap(text, font, size, maxWidth) {
 function fmtDate(value, allDay = false) {
   if (!value) return ""
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+  if (Number.isNaN(date.getTime())) return String(value)
   return new Intl.DateTimeFormat("de-DE", {
     timeZone: "Europe/Berlin",
     weekday: "short",
@@ -116,7 +115,7 @@ async function buildSummaryPdf(data) {
   }
 
   section("Relevantes aus den letzten 10 E-Mails")
-  const emails = (Array.isArray(data.emails) ? data.emails : []).filter(e => e.relevant)
+  const emails = (Array.isArray(data.emails) ? data.emails : []).filter(e => e.relevant !== false)
   if (!emails.length) line("Keine relevanten Punkte in den letzten 10 E-Mails.")
   for (const email of emails.slice(0, 8)) {
     const from = email.from ? ` - ${email.from}` : ""
@@ -138,21 +137,16 @@ let connected = false
 try {
   await redis.connect()
   connected = true
-  const [auth, deviceToken, userToken] = await Promise.all([
-    redis.get("bridge:auth"),
+  const [deviceToken, userToken, summaryRaw] = await Promise.all([
     redis.get("rm:deviceToken"),
-    redis.get("rm:userToken")
+    redis.get("rm:userToken"),
+    redis.get("summary:payload")
   ])
 
-  if (!auth) throw new Error("Bridge login has not been captured yet")
   if (!deviceToken || !userToken) throw new Error("reMarkable Cloud is not paired yet")
+  if (!summaryRaw) throw new Error("No summary payload has been received yet")
 
-  const summaryResponse = await fetch(SUMMARY_DATA_URL, { headers: { authorization: auth } })
-  const summaryText = await summaryResponse.text()
-  if (!summaryResponse.ok) throw new Error(`Summary data failed (${summaryResponse.status}): ${summaryText}`)
-  const summary = JSON.parse(summaryText)
-  if (!summary.ok) throw new Error(summary.error || "Summary data unavailable")
-
+  const summary = JSON.parse(summaryRaw)
   const pdfBytes = await buildSummaryPdf(summary)
   await writeFile(PDF, pdfBytes)
   await writeFile(CONFIG, `devicetoken: ${JSON.stringify(deviceToken)}\nusertoken: ${JSON.stringify(userToken)}\n`, { mode: 0o600 })
@@ -175,7 +169,7 @@ try {
     bytes: pdfBytes.length,
     tasks: summary.tasks?.length || 0,
     events: summary.events?.length || 0,
-    relevantEmails: summary.emails?.filter?.(e => e.relevant)?.length || 0,
+    relevantEmails: summary.emails?.length || 0,
     stdout: stdout.trim().slice(-1000),
     stderr: stderr.trim().slice(-1000)
   }
