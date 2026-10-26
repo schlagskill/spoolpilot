@@ -20,21 +20,24 @@ function same(a, b) {
   return aa.length === bb.length && aa.length > 0 && timingSafeEqual(aa, bb)
 }
 
-async function authorized(req) {
-  if (same(req.headers["x-sync-secret"], SECRET)) return true
-
+async function verifyGithubOidc(req, audience, repository, ref) {
   const header = String(req.headers.authorization || "")
   if (!header.startsWith("Bearer ")) return false
   try {
     const { payload } = await jwtVerify(header.slice(7), GITHUB_JWKS, {
       issuer: "https://token.actions.githubusercontent.com",
-      audience: "remarkable-pdf-sync"
+      audience
     })
-    return payload.repository === "schlagskill/spoolpilot" && payload.ref === "refs/heads/main"
+    return payload.repository === repository && payload.ref === ref
   } catch (error) {
     console.error("OIDC verification failed", error instanceof Error ? error.message : String(error))
     return false
   }
+}
+
+async function authorized(req) {
+  if (same(req.headers["x-sync-secret"], SECRET)) return true
+  return verifyGithubOidc(req, "remarkable-pdf-sync", "schlagskill/spoolpilot", "refs/heads/main")
 }
 
 function automationAuthorized(url) {
@@ -109,19 +112,43 @@ function clean(value, max = 600) {
   return String(value || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max)
 }
 
+function normalizeEvent(event) {
+  return {
+    start: clean(event?.start || event?.when, 100),
+    title: clean(event?.title || event?.summary, 240),
+    allDay: Boolean(event?.allDay)
+  }
+}
+
+function normalizeMail(mail) {
+  return {
+    subject: clean(mail?.subject, 240),
+    from: clean(mail?.from, 240),
+    snippet: clean(mail?.snippet || mail?.summary, 700),
+    relevant: mail?.relevant !== false
+  }
+}
+
 function parseEvent(raw) {
   const [when = "", title = ""] = String(raw || "").split("|||", 2)
-  return { start: clean(when, 80), title: clean(title, 220), allDay: false }
+  return normalizeEvent({ start: when, title })
 }
 
 function parseMail(raw) {
   const parts = String(raw || "").split("|||")
-  return {
-    subject: clean(parts[0], 220),
-    from: clean(parts[1], 220),
-    snippet: clean(parts.slice(2).join("|||"), 600),
-    relevant: true
+  return normalizeMail({ subject: parts[0], from: parts[1], snippet: parts.slice(2).join("|||") })
+}
+
+async function readJsonBody(req) {
+  const chunks = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > 128 * 1024) throw new Error("payload too large")
+    chunks.push(chunk)
   }
+  const text = Buffer.concat(chunks).toString("utf8")
+  return text ? JSON.parse(text) : {}
 }
 
 async function runSync() {
@@ -130,6 +157,27 @@ async function runSync() {
     env: process.env,
     timeout: 180_000,
     maxBuffer: 1024 * 1024
+  })
+}
+
+async function storeAndSync(events, emails) {
+  return withRedis(async redis => {
+    const tasks = await fetchTasks(redis)
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      tasks,
+      events: (events || []).map(normalizeEvent).filter(e => e.title).slice(0, 100),
+      emails: (emails || []).map(normalizeMail).filter(e => e.subject).slice(0, 10)
+    }
+    await redis.set("summary:payload", JSON.stringify(payload))
+    const { stdout, stderr } = await runSync()
+    return {
+      tasks: payload.tasks.length,
+      events: payload.events.length,
+      emails: payload.emails.length,
+      stdout: stdout.trim().slice(-1000),
+      stderr: stderr.trim().slice(-1000)
+    }
   })
 }
 
@@ -161,15 +209,21 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ ok: false, error: "unauthorized" }))
         return
       }
-      const events = url.searchParams.getAll("event").map(parseEvent).filter(e => e.title)
-      const emails = url.searchParams.getAll("mail").map(parseMail).filter(e => e.subject)
-      const result = await withRedis(async redis => {
-        const tasks = await fetchTasks(redis)
-        const payload = { generatedAt: new Date().toISOString(), tasks, events, emails }
-        await redis.set("summary:payload", JSON.stringify(payload))
-        const { stdout, stderr } = await runSync()
-        return { tasks: tasks.length, events: events.length, emails: emails.length, stdout: stdout.trim().slice(-1000), stderr: stderr.trim().slice(-1000) }
-      })
+      const result = await storeAndSync(url.searchParams.getAll("event").map(parseEvent), url.searchParams.getAll("mail").map(parseMail))
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
+      res.end(JSON.stringify({ ok: true, ...result }))
+      return
+    }
+
+    if (req.method === "POST" && url.pathname === "/automation/update-json") {
+      const ok = await verifyGithubOidc(req, "remarkable-summary-update", "schlagskill/Test", "refs/heads/retaskable-google-tasks-bridge")
+      if (!ok) {
+        res.writeHead(401, { "content-type": "application/json" })
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }))
+        return
+      }
+      const body = await readJsonBody(req)
+      const result = await storeAndSync(Array.isArray(body.events) ? body.events : [], Array.isArray(body.emails) ? body.emails : [])
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
       res.end(JSON.stringify({ ok: true, ...result }))
       return
