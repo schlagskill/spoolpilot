@@ -8,6 +8,7 @@
     "postinstall": "mkdir -p bin && if [ ! -x bin/rmapi ]; then curl -fsSL https://github.com/ddvk/rmapi/releases/download/v0.0.35/rmapi-linux-amd64.tar.gz | tar -xz -C bin && chmod +x bin/rmapi; fi"
   },
   "dependencies": {
+    "jose": "^6.1.0",
     "pdf-lib": "^1.17.1",
     "redis": "^5.8.3"
   }
