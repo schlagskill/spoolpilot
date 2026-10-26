@@ -12,6 +12,7 @@ const SECRET = process.env.SYNC_TRIGGER_SECRET || ""
 const AUTOMATION_SECRET = process.env.AUTOMATION_SECRET || ""
 const REDIS_URL = process.env.REDIS_URL || "redis://red-dbfonubl550s739gmf70:6379"
 const DAV_TASKS_URL = process.env.DAV_TASKS_URL || "https://remarkable-google-tasks-dav.onrender.com/dav/calendars/remarkable/tasks/"
+const SUMMARY_TASKS_URL = process.env.SUMMARY_TASKS_URL || "https://remarkable-google-tasks.netlify.app/summary-tasks"
 const GITHUB_JWKS = createRemoteJWKSet(new URL("https://token.actions.githubusercontent.com/.well-known/jwks"))
 
 function same(a, b) {
@@ -87,6 +88,21 @@ function parseTasks(xml) {
   return tasks
 }
 
+function normalizeSummaryTasks(tasks) {
+  return tasks
+    .filter(task => task && typeof task === "object")
+    .map(task => {
+      const title = String(task.title || "").trim() || "(ohne Titel)"
+      const dueRaw = String(task.due || "").trim()
+      const dueMatch = dueRaw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+      return {
+        title,
+        due: dueMatch ? `${dueMatch[1]}-${dueMatch[2]}-${dueMatch[3]}` : "",
+        listTitle: String(task.listTitle || "Google Tasks").trim() || "Google Tasks"
+      }
+    })
+}
+
 async function withRedis(fn) {
   const redis = createClient({ url: REDIS_URL })
   redis.on("error", err => console.error("redis", err))
@@ -97,6 +113,26 @@ async function withRedis(fn) {
 async function fetchTasks(redis) {
   const auth = await redis.get("bridge:auth")
   if (!auth) throw new Error("Bridge login has not been captured yet")
+
+  try {
+    const summaryResponse = await fetch(SUMMARY_TASKS_URL, {
+      headers: { authorization: auth, accept: "application/json" }
+    })
+    const summaryText = await summaryResponse.text()
+    if (summaryResponse.ok) {
+      const summary = summaryText ? JSON.parse(summaryText) : {}
+      if (summary?.ok && Array.isArray(summary.tasks)) {
+        const tasks = normalizeSummaryTasks(summary.tasks)
+        console.log(`Google Tasks all-lists endpoint: ${tasks.length} open task(s)`)
+        return tasks
+      }
+    } else if (summaryResponse.status !== 404) {
+      console.warn(`All-lists Tasks endpoint unavailable (${summaryResponse.status}): ${summaryText.slice(0, 200)}`)
+    }
+  } catch (error) {
+    console.warn("All-lists Tasks endpoint failed; falling back to DAV", error instanceof Error ? error.message : String(error))
+  }
+
   const query = `<?xml version="1.0" encoding="utf-8"?>\n<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">\n  <d:prop><d:getetag/><c:calendar-data/></d:prop>\n  <c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VTODO"/></c:comp-filter></c:filter>\n</c:calendar-query>`
   const response = await fetch(DAV_TASKS_URL, {
     method: "REPORT",
@@ -105,7 +141,9 @@ async function fetchTasks(redis) {
   })
   const text = await response.text()
   if (!response.ok) throw new Error(`Tasks query failed (${response.status}): ${text.slice(0, 300)}`)
-  return parseTasks(text)
+  const tasks = parseTasks(text)
+  console.log(`Google Tasks DAV fallback: ${tasks.length} open task(s)`)
+  return tasks
 }
 
 function clean(value, max = 600) {
