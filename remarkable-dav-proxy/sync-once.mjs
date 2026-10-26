@@ -8,6 +8,7 @@ const execFileAsync = promisify(execFile)
 const REDIS_URL = process.env.REDIS_URL || "redis://red-dbfonubl550s739gmf70:6379"
 const PDF_URL = process.env.PDF_URL || "https://remarkable-google-tasks-dav.onrender.com/aufgaben.pdf"
 const RMAPI = process.env.RMAPI_BIN || path.join(process.cwd(), "bin", "rmapi")
+const RMAPI_AUTH = process.env.RMAPI_AUTH || "https://webapp-prod.cloud.remarkable.engineering"
 const CONFIG = "/tmp/remarkable-rmapi.yml"
 const PDF = "/tmp/Aufgaben.pdf"
 
@@ -48,7 +49,7 @@ try {
   await writeFile(CONFIG, `devicetoken: ${JSON.stringify(deviceToken)}\nusertoken: ${JSON.stringify(userToken)}\n`, { mode: 0o600 })
 
   const { stdout, stderr } = await execFileAsync(RMAPI, ["put", "--content-only", PDF, "/"], {
-    env: { ...process.env, RMAPI_CONFIG: CONFIG },
+    env: { ...process.env, RMAPI_AUTH, RMAPI_CONFIG: CONFIG },
     timeout: 120_000,
     maxBuffer: 1024 * 1024
   })
